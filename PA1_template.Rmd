@@ -3,24 +3,24 @@
 
 ## Loading and preprocessing the data
 
-Data table is used to interact with the data to make operating over particular dates and intervals easier.
-
-The activity data is read in and a total steps per day is calculated. Additionally, average steps per interval across days, is derived. NAs are treated as zero for this purpose.
+The activity data is read in and a total steps per day is calculated. Additionally, average steps per interval across days, is derived. NAs are ignored in this.
 
 Additionally summary metrics are computed for the steps per day and steps per interval.
 
 ```{r,results='hide'}
-library("data.table")
 library("ggplot2")
-activityData <- data.table(read.csv("activity.csv"))
+activityData <- read.csv("activity.csv")
 
-activityData[,stepsDay := sum(steps), by=date]
-activityData[,stepsInterval :=mean(steps, na.rm=TRUE), by=interval]
 
-meanSteps = mean(activityData$stepsDay, na.rm=TRUE)
-medianSteps = median(activityData$stepsDay, na.rm=TRUE)
+stepsDay <- data.frame(with(activityData, tapply(steps, date, sum, na.rm=TRUE)))
+stepsDay[,1] <- as.numeric(stepsDay[,1])
+stepsInterval <- data.frame(with(activityData, tapply(steps, interval, mean, na.rm=TRUE)))
+stepsInterval[,1] <- as.numeric(stepsInterval[,1])
 
-maxSteps = max(activityData$stepsInterval)
+meanSteps = mean(stepsDay[,1], na.rm=TRUE)
+medianSteps = median(stepsDay[,1], na.rm=TRUE)
+maxSteps = max(stepsInterval[,1])
+maxInterval = row.names(stepsInterval)[stepsInterval==max(stepsInterval)]
 
 ```
 
@@ -32,21 +32,73 @@ A histogram is generated of the steps taken per day, illustrating the spread of 
 The mean number of steps per day is `r meanSteps` and the median steps per day is `r medianSteps`.
 
 ````{r}
-qplot(stepsDay, data=activityData, binwidth=1000, xlab="steps per day")
+qplot(stepsDay[,1], data=stepsDay, binwidth=1000, xlab="steps per day")
 
 ```
 
 
 ## What is the average daily activity pattern?
 
-Looking at the different 5-minute collection intervals throughout the day, we see the following average pattern of activity for a day.
+Looking at the different 5-minute collection intervals throughout the day, we see the following average pattern of activity over the course of a day.
 
 ```{r}
+qplot(as.integer(row.names(stepsInterval)),stepsInterval[,1], geom="line", ylab="Number of steps", xlab="5-minute Interval")
+```
+
+The maximum number of steps in a day is `r maxSteps` which occurs during interval `r maxInterval`. 
+
+## Imputing missing values
+
+To prepare for the imputing of missing values, the number of observations with missing values is computed.
+
+```{r}
+length(activityData$steps) - sum(complete.cases(activityData))
+```
+
+For the sake of convenience, the overall mean value of steps (ignoring missing values) is used for all missing values. A more sophisticated method would be to determine if a particular interval is above or below daily average on most days and to deviate by a set or random amount from the daily average in the indicated direction.
+
+Summary metrics are generated for the new data as per the original data.
+
+
+```{r, results='hide'}
+
+imputedData <- activityData
+imputedData$steps[is.na(imputedData$steps)] <- mean(activityData$steps, na.rm = TRUE)
+
+imputedStepsDay <- data.frame(with(imputedData, tapply(steps, date, sum)))
+imputedStepsDay[,1] <- as.numeric(imputedStepsDay[,1])
+imputedStepsInterval <- data.frame(with(imputedData, tapply(steps, interval, mean)))
+imputedStepsInterval[,1] <- as.numeric(imputedStepsInterval[,1])
+
+imputedMeanSteps = mean(imputedStepsDay[,1])
+imputedMedianSteps = median(imputedStepsDay[,1])
+imputedMaxSteps = max(imputedStepsInterval[,1])
+imputedMaxInterval = row.names(imputedStepsInterval)[imputedStepsInterval==max(imputedStepsInterval)]
 
 ```
 
-## Imputing missing values
+The new mean number of steps per day is `r imputedMeanSteps` and the new median steps per day is `r imputedMedianSteps`.
+
+With the addition of values derived from the total mean number of steps, the daily total increases somewhat over the previous mean (as all intervals now have data) and the mean and median converge due to the increased regularity of the data.
+
+````{r}
+qplot(imputedStepsDay[,1], data=imputedStepsDay, binwidth=1000, xlab="steps per day")
+
+```
 
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+Using the data set with imputed data, we now look at weekends vs. weekdays. To do this we first create a factor variable to hold this information.
+
+```{r, results='hide'}
+imputedData$daytype = factor(ifelse(weekdays(as.POSIXct(imputedData$date))%in%c("Saturday","Sunday"),"Weekend","Weekday"))
+```
+
+Once it is created, the two can be plotted stacked on top of one another.
+
+```{r}
+ggplot(data=imputedData, aes(interval, steps)) + stat_summary(fun.y="mean", geom="line") + facet_grid(daytype ~ .)
+
+```
